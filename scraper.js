@@ -108,7 +108,12 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
     try {
       await page.goto(url, { timeout: TIMEOUT, waitUntil: 'domcontentloaded' });
-      await sleep(200); // minimal buffer for JS to start executing
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 30000 });
+      } catch (_) {
+        log('warn', 'networkidle timeout (non-fatal), continuing...');
+      }
+      await sleep(500);
     } catch (err) {
       if (attempt < MAX_ATTEMPTS) {
         const delay = attempt * 3000;
@@ -237,15 +242,11 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           tabName = (await tab.innerText()).trim();
           await tab.click();
 
-          // Wait for tab panel to appear
           await page.waitForSelector('div.tab-pane.active', { timeout: 30000 });
-          // Wait for AJAX data to finish loading — original used 20s, we use 5s.
-          // Most AJAX calls on MaStR finish in 1-3s so this is fast in practice.
-          // If it times out (slow page), we fall through and read whatever is there.
           try {
-            await page.waitForLoadState('networkidle', { timeout: 5000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 });
           } catch (_) {}
-          await sleep(150);
+          await sleep(400);
 
           const panel = await page.$('div.tab-pane.active');
           if (!panel) continue;
