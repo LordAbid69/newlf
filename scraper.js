@@ -237,9 +237,15 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           tabName = (await tab.innerText()).trim();
           await tab.click();
 
-          // waitForSelector is the real guard — networkidle removed (was wasting up to 20s per tab)
+          // Wait for tab panel to appear
           await page.waitForSelector('div.tab-pane.active', { timeout: 30000 });
-          await sleep(150); // minimal buffer for tab JS to finish rendering
+          // Wait for AJAX data to finish loading — original used 20s, we use 5s.
+          // Most AJAX calls on MaStR finish in 1-3s so this is fast in practice.
+          // If it times out (slow page), we fall through and read whatever is there.
+          try {
+            await page.waitForLoadState('networkidle', { timeout: 5000 });
+          } catch (_) {}
+          await sleep(150);
 
           const panel = await page.$('div.tab-pane.active');
           if (!panel) continue;
