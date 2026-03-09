@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';" />
+<title>MaStR Scraper</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   THEME — Dark industrial, monospaced data aesthetic
+═══════════════════════════════════════════════════════════════════ */
+@import url('data:text/css,'); /* noop — fonts via system stack */
+
+:root {
+  --bg0:   #080b10;
+  --bg1:   #0d1117;
+  --bg2:   #141922;
+  --bg3:   #1c2330;
+  --bg4:   #232d3f;
+  --bd:    #2a3447;
+  --bd2:   #3a4a63;
+
+  --acc:   #3b82f6;
+  --acc2:  #60a5fa;
+  --grn:   #22c55e;
+  --grn2:  #4ade80;
+  --ylw:   #eab308;
+  --red:   #ef4444;
+  --pur:   #a855f7;
+
+  --txt:   #e2e8f0;
+  --txt2:  #94a3b8;
+  --txt3:  #4b5d78;
+  --txt4:  #2d3d56;
+
+  --mono: 'Cascadia Code', 'Consolas', 'SF Mono', 'Fira Code', monospace;
+  --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg0);
+  color: var(--txt);
+  font-family: var(--sans);
+  font-size: 13px;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── SCROLLBARS ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bd2); }
+
+/* ══════════════════════════════════════════════════════════════════
+   TITLEBAR
+═══════════════════════════════════════════════════════════════════ */
+#titlebar {
+  height: 40px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bd);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+  position: relative;
+  z-index: 100;
+}
+
+.tb-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: var(--txt);
+}
+
+.tb-logo-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc);
+  flex-shrink: 0;
+}
+
+.tb-logo-dot.running {
+  background: var(--grn);
+  box-shadow: 0 0 8px var(--grn);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+.tb-spacer { flex: 1; }
+
+#tb-runtime {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--txt3);
+  padding: 0 20px;
+  -webkit-app-region: no-drag;
+  letter-spacing: 0.04em;
+  min-width: 60px;
+  text-align: right;
+}
+
+#tb-runtime.active { color: var(--acc2); }
+
+.win-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 46px; height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--txt3);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.win-btn:hover { background: var(--bg3); color: var(--txt); }
+.win-btn.win-close:hover { background: var(--red); color: #fff; }
+
+/* ══════════════════════════════════════════════════════════════════
+   LAYOUT
+═══════════════════════════════════════════════════════════════════ */
+#layout {
+  display: flex;
+  height: calc(100vh - 40px);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════════════ */
+#sidebar {
+  width: 296px;
+  background: var(--bg1);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sb-section {
+  padding: 16px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.sb-section:last-of-type { border-bottom: none; }
+
+.sb-heading {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--txt3);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sb-heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+
+.field { margin-bottom: 11px; }
+.field:last-child { margin-bottom: 0; }
+
+.field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--txt2);
+  margin-bottom: 5px;
+  letter-spacing: 0.01em;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field select,
+.field textarea {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 5px;
+  color: var(--txt);
+  font-size: 12px;
+  font-family: var(--sans);
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.field textarea {
+  resize: none;
+  min-height: 78px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234b5d78'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.field select option { background: var(--bg2); }
+
+.folder-row { display: flex; gap: 6px; }
+.folder-row input { flex: 1; min-width: 0; }
+
+/* ── BUTTONS ─────────────────────────────────────────────────────────────── */
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: none; border-radius: 6px;
+  font-family: var(--sans);
+  font-size: 12px; font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 9px 16px;
+  letter-spacing: 0.02em;
+}
+
+.btn-primary {
+  background: var(--acc);
+  color: #fff;
+  box-shadow: 0 1px 8px rgba(59,130,246,0.35);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--acc2);
+  box-shadow: 0 2px 12px rgba(59,130,246,0.5);
+  transform: translateY(-1px);
+}
+.btn-primary:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.22); border-color: rgba(239,68,68,0.5); }
+.btn-danger:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-ghost {
+  background: var(--bg3);
+  color: var(--txt2);
+  border: 1px solid var(--bd);
+  font-size: 11px;
+  padding: 7px 10px;
+}
+.btn-ghost:hover { border-color: var(--acc); color: var(--acc2); }
+
+.action-section {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  border-top: 1px solid var(--bd);
+}
+
+.action-section .btn { width: 100%; padding: 10px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   MAIN CONTENT
+═══════════════════════════════════════════════════════════════════ */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg0);
+}
+
+/* ── STATS BAR ───────────────────────────────────────────────────────────── */
+#stats-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bd);
+  flex-shrink: 0;
+  height: 72px;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 22px;
+  border-right: 1px solid var(--bd);
+  min-width: 110px;
+}
+
+.stat-cell:last-child { border-right: none; }
+
+.stat-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--txt3);
+  margin-bottom: 4px;
+}
+
+.stat-val {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--txt);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.stat-val.c-green  { color: var(--grn); }
+.stat-val.c-blue   { color: var(--acc2); }
+.stat-val.c-yellow { color: var(--ylw); }
+.stat-val.c-red    { color: var(--red); }
+
+.stat-spacer { flex: 1; }
+
+.stat-cell.status-cell {
+  padding: 0 22px;
+  min-width: 130px;
+  border-right: none;
+  border-left: 1px solid var(--bd);
+}
+
+#stat-status-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--txt2);
+}
+
+/* ── PROGRESS SECTION ────────────────────────────────────────────────────── */
+#prog-section {
+  padding: 10px 20px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bd);
+  flex-shrink: 0;
+}
+
+.prog-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+#prog-label { color: var(--txt2); }
+#prog-pct {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--acc2);
+  font-size: 12px;
+}
+
+.prog-track {
+  height: 4px;
+  background: var(--bg4);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.prog-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.35s ease;
+  position: relative;
+}
+
+.prog-fill::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 20px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+  border-radius: 99px;
+}
+
+.prog-fill.done    { background: linear-gradient(90deg, var(--grn), var(--grn2)); }
+.prog-fill.done::after { display: none; }
+.prog-fill.stopped { background: linear-gradient(90deg, var(--ylw), #fbbf24); }
+.prog-fill.stopped::after { display: none; }
+
+/* ── TABS ────────────────────────────────────────────────────────────────── */
+#tab-bar {
+  display: flex;
+  align-items: flex-end;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bd);
+  padding: 0 16px;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+  border-radius: 4px 4px 0 0;
+  letter-spacing: 0.01em;
+}
+.tab:hover { color: var(--txt2); }
+.tab.active { color: var(--acc2); border-bottom-color: var(--acc); }
+
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--bg3);
+  border: 1px solid var(--bd);
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--txt3);
+  font-weight: 700;
+  transition: all 0.15s;
+}
+.tab.active .badge {
+  background: rgba(59,130,246,0.15);
+  border-color: rgba(59,130,246,0.3);
+  color: var(--acc2);
+}
+
+/* ── TAB PANELS ──────────────────────────────────────────────────────────── */
+#tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.tab-panel {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+}
+.tab-panel.active { display: flex; }
+
+/* ── RESULTS TABLE ───────────────────────────────────────────────────────── */
+#table-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+#results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#results-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+#results-table th {
+  background: var(--bg2);
+  color: var(--txt3);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--bd);
+  white-space: nowrap;
+  border-right: 1px solid var(--bd);
+}
+#results-table th:last-child { border-right: none; }
+
+#results-table td {
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(42, 52, 71, 0.7);
+  border-right: 1px solid rgba(42,52,71,0.4);
+  color: var(--txt);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#results-table td:last-child { border-right: none; }
+
+#results-table tbody tr:hover td {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+#results-table tbody tr:nth-child(even) td {
+  background: rgba(20, 25, 34, 0.5);
+}
+#results-table tbody tr:nth-child(even):hover td {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.row-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt3);
+  text-align: right;
+  min-width: 40px;
+  padding-right: 10px !important;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────────────────────── */
+#empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 14px;
+  color: var(--txt4);
+  font-size: 13px;
+}
+
+.empty-icon { font-size: 40px; opacity: 0.4; }
+.empty-hint { font-size: 12px; color: var(--txt3); }
+
+/* ── CONSOLE LOG ─────────────────────────────────────────────────────────── */
+#console-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+  font-family: var(--mono);
+  background: var(--bg0);
+}
+
+.log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 16px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  transition: background 0.1s;
+}
+.log-line:hover { background: rgba(255,255,255,0.02); }
+
+.log-ts {
+  font-size: 10px;
+  color: var(--txt4);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  min-width: 56px;
+}
+
+.log-msg { word-break: break-all; }
+
+.log-line.info    .log-msg { color: var(--txt2); }
+.log-line.success .log-msg { color: var(--grn); }
+.log-line.warn    .log-msg { color: var(--ylw); }
+.log-line.error   .log-msg { color: var(--red); }
+
+/* ── TOAST ───────────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 999;
+  background: var(--bg2);
+  border: 1px solid var(--bd2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: none;
+  max-width: 340px;
+}
+#toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+#toast.success { border-left: 3px solid var(--grn); }
+#toast.error   { border-left: 3px solid var(--red); }
+#toast.warn    { border-left: 3px solid var(--ylw); }
+
+#toast-icon  { font-size: 17px; flex-shrink: 0; }
+#toast-body  { flex: 1; color: var(--txt); line-height: 1.4; }
+#toast-title { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+#toast-sub   { font-size: 11px; color: var(--txt2); }
+#toast-act   {
+  color: var(--acc2);
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(59,130,246,0.25);
+  background: rgba(59,130,246,0.08);
+  transition: background 0.15s;
+}
+#toast-act:hover { background: rgba(59,130,246,0.18); }
+#toast-act.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ TITLEBAR ══════════════════ -->
+<div id="titlebar">
+  <div class="tb-logo">
+    <div class="tb-logo-dot" id="tb-dot"></div>
+    MaStR Scraper
+  </div>
+  <div class="tb-spacer"></div>
+  <span id="tb-runtime">00:00</span>
+  <div class="win-controls">
+    <button class="win-btn"       id="btn-min"   title="Minimize">&#x2212;</button>
+    <button class="win-btn"       id="btn-max"   title="Maximize / Restore">&#x25A1;</button>
+    <button class="win-btn win-close" id="btn-close" title="Close">&#x2715;</button>
+  </div>
+</div>
+
+<!-- ══════════════════ LAYOUT ══════════════════ -->
+<div id="layout">
+
+  <!-- ═════════ SIDEBAR ═════════ -->
+  <div id="sidebar">
+
+    <!-- Target URL -->
+    <div class="sb-section">
+      <div class="sb-heading">Target</div>
+      <div class="field">
+        <label>Listing Page URL</label>
+        <textarea id="inp-url" spellcheck="false"
+          placeholder="https://www.marktstammdatenregister.de/MaStR/Einheit/Einheiten/OeffentlicheEinheitenuebersicht?filter=..."></textarea>
+      </div>
+    </div>
+
+    <!-- Scrape Settings -->
+    <div class="sb-section">
+      <div class="sb-heading">Settings</div>
+      <div class="field">
+        <label>Max Pages</label>
+        <input type="number" id="inp-pages" value="77" min="1" max="9999" />
+      </div>
+      <div class="field">
+        <label>Concurrency (parallel tabs)</label>
+        <select id="inp-concurrency">
+          <option value="1">1 — Safe / Slowest</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="10" selected>10 — Fast (default)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="sb-section">
+      <div class="sb-heading">Export</div>
+      <div class="field">
+        <label>File Name</label>
+        <input type="text" id="inp-filename" value="MaStR_units" placeholder="MaStR_units" />
+      </div>
+      <div class="field">
+        <label>Save Folder</label>
+        <div class="folder-row">
+          <input type="text" id="inp-folder" readonly placeholder="Documents" />
+          <button class="btn btn-ghost" id="btn-browse">Browse</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action buttons pinned to bottom -->
+    <div class="action-section">
+      <button class="btn btn-primary" id="btn-start">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Start Scraping
+      </button>
+      <button class="btn btn-danger" id="btn-stop" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+        </svg>
+        Stop
+      </button>
+    </div>
+  </div>
+
+  <!-- ═════════ MAIN CONTENT ═════════ -->
+  <div id="main">
+
+    <!-- Stats bar -->
+    <div id="stats-bar">
+      <div class="stat-cell">
+        <div class="stat-lbl">Rows Scraped</div>
+        <div class="stat-val c-green" id="sv-rows">0</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-lbl">Current Page</div>
+        <div class="stat-val c-blue" id="sv-page">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-lbl">Listings Found</div>
+        <div class="stat-val" id="sv-listings">0</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-lbl">Errors</div>
+        <div class="stat-val c-red" id="sv-errors">0</div>
+      </div>
+      <div class="stat-spacer"></div>
+      <div class="stat-cell status-cell">
+        <div class="stat-lbl">Status</div>
+        <div id="stat-status-text">Idle</div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div id="prog-section">
+      <div class="prog-meta">
+        <span id="prog-label">Ready — enter a URL and click Start Scraping</span>
+        <span id="prog-pct">0%</span>
+      </div>
+      <div class="prog-track">
+        <div class="prog-fill" id="prog-fill"></div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div id="tab-bar">
+      <div class="tab active" data-target="panel-results">
+        Live Results
+        <span class="badge" id="badge-rows">0</span>
+      </div>
+      <div class="tab" data-target="panel-console">
+        Console
+        <span class="badge" id="badge-logs">0</span>
+      </div>
+    </div>
+
+    <!-- Tab panels -->
+    <div id="tab-content">
+
+      <!-- RESULTS panel -->
+      <div class="tab-panel active" id="panel-results">
+        <div id="table-scroll">
+          <div id="empty-state">
+            <div class="empty-icon">⬜</div>
+            <div>No data yet</div>
+            <div class="empty-hint">Results will appear here row by row as scraping runs</div>
+          </div>
+          <table id="results-table" style="display:none">
+            <thead><tr id="tbl-head"></tr></thead>
+            <tbody id="tbl-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- CONSOLE panel -->
+      <div class="tab-panel" id="panel-console">
+        <div id="console-wrap"></div>
+      </div>
+
+    </div>
+  </div><!-- /#main -->
+</div><!-- /#layout -->
+
+<!-- Toast -->
+<div id="toast">
+  <span id="toast-icon">✓</span>
+  <div id="toast-body">
+    <div id="toast-title"></div>
+    <div id="toast-sub"></div>
+  </div>
+  <span id="toast-act" class="hidden"></span>
+</div>
+
+<!-- ══════════════════ RENDERER SCRIPT ══════════════════ -->
+<script>
+'use strict';
+const a = window.api;
+
+// ── State ─────────────────────────────────────────────────────────────────
+let rowCount    = 0;
+let logCount    = 0;
+let errorCount  = 0;
+let columns     = [];
+let startTime   = null;
+let timerHandle = null;
+let toastTimer  = null;
+let lastSaved   = null;
+let autoScrollTable   = true;
+let autoScrollConsole = true;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+(async () => {
+  const docs = await a.getDocsPath();
+  document.getElementById('inp-folder').value = docs;
+})();
+
+// ── Window controls ───────────────────────────────────────────────────────
+document.getElementById('btn-min').addEventListener('click', () => a.minimize());
+document.getElementById('btn-max').addEventListener('click', () => a.maximize());
+document.getElementById('btn-close').addEventListener('click', () => a.close());
+
+// ── Browse folder ─────────────────────────────────────────────────────────
+document.getElementById('btn-browse').addEventListener('click', async () => {
+  const p = await a.pickFolder();
+  if (p) document.getElementById('inp-folder').value = p;
+});
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.target).classList.add('active');
+  });
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────
+document.getElementById('btn-start').addEventListener('click', () => {
+  const url = document.getElementById('inp-url').value.trim();
+  if (!url) { toast('warn', '⚠', 'Missing URL', 'Enter the listing URL first'); return; }
+
+  // Remove old listeners to avoid duplicates on re-run
+  ['scraper:row','scraper:log','scraper:progress','scraper:done','scraper:error']
+    .forEach(ch => a.removeAllListeners(ch));
+
+  resetUI();
+  setRunning(true);
+  startTimer();
+
+  a.startScraper({
+    url,
+    maxPages:    parseInt(document.getElementById('inp-pages').value)       || 77,
+    concurrency: parseInt(document.getElementById('inp-concurrency').value) || 10,
+    saveFolder:  document.getElementById('inp-folder').value,
+    fileName:    document.getElementById('inp-filename').value.trim() || 'MaStR_units',
+  });
+
+  // Register listeners
+  a.onRow(handleRow);
+  a.onLog(handleLog);
+  a.onProgress(handleProgress);
+  a.onDone(handleDone);
+  a.onError(msg => {
+    addConsoleLog('error', `❌ ${msg}`);
+    errorCount++;
+    document.getElementById('sv-errors').textContent = errorCount;
+  });
+});
+
+// ── Stop ──────────────────────────────────────────────────────────────────
+document.getElementById('btn-stop').addEventListener('click', () => {
+  a.stopScraper();
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('btn-stop').textContent = 'Stopping…';
+});
+
+// ── Row handler ───────────────────────────────────────────────────────────
+function handleRow(row) {
+  rowCount++;
+
+  // Grow headers if new columns appear
+  const newCols = Object.keys(row).filter(k => !columns.includes(k));
+  if (newCols.length) {
+    newCols.forEach(col => {
+      columns.push(col);
+      const th = document.createElement('th');
+      th.textContent = col;
+      document.getElementById('tbl-head').appendChild(th);
+    });
+    document.getElementById('results-table').style.display = '';
+    document.getElementById('empty-state').style.display   = 'none';
+  }
+
+  // Limit DOM rows to 500 (all data stored in scraper memory anyway)
+  const tbody = document.getElementById('tbl-body');
+  if (tbody.children.length >= 500) tbody.removeChild(tbody.firstChild);
+
+  const tr = document.createElement('tr');
+  columns.forEach(col => {
+    const td = document.createElement('td');
+    td.textContent = row[col] || '';
+    td.title       = row[col] || '';
+    tr.appendChild(td);
+  });
+  tbody.appendChild(tr);
+
+  // Stats
+  document.getElementById('sv-rows').textContent    = rowCount;
+  document.getElementById('badge-rows').textContent = rowCount;
+  document.getElementById('sv-listings').textContent = rowCount;
+
+  if (autoScrollTable) {
+    const s = document.getElementById('table-scroll');
+    s.scrollTop = s.scrollHeight;
+  }
+
+  // Check for Error column
+  if (row['Error']) { errorCount++; document.getElementById('sv-errors').textContent = errorCount; }
+}
+
+// ── Log handler ───────────────────────────────────────────────────────────
+function handleLog({ level, text }) {
+  addConsoleLog(level, text);
+}
+
+function addConsoleLog(level, text) {
+  logCount++;
+  document.getElementById('badge-logs').textContent = logCount;
+
+  const div  = document.createElement('div');
+  div.className = `log-line ${level}`;
+  const ts = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  div.innerHTML = `<span class="log-ts">${ts}</span><span class="log-msg">${escHtml(text)}</span>`;
+
+  const wrap = document.getElementById('console-wrap');
+  wrap.appendChild(div);
+
+  if (autoScrollConsole) wrap.scrollTop = wrap.scrollHeight;
+}
+
+// ── Progress handler ──────────────────────────────────────────────────────
+function handleProgress({ page, maxPages, pct, label }) {
+  document.getElementById('sv-page').textContent  = page ? `${page}/${maxPages}` : '—';
+  document.getElementById('prog-fill').style.width = `${Math.min(pct, 100)}%`;
+  document.getElementById('prog-pct').textContent  = `${Math.round(pct)}%`;
+  document.getElementById('prog-label').textContent = label || '';
+}
+
+// ── Done handler ──────────────────────────────────────────────────────────
+function handleDone({ success, filePath, rowCount: finalRows, stopped }) {
+  setRunning(false);
+  stopTimer();
+  lastSaved = filePath;
+
+  const fill  = document.getElementById('prog-fill');
+  const stEl  = document.getElementById('stat-status-text');
+
+  if (stopped) {
+    fill.classList.add('stopped');
+    fill.style.width = document.getElementById('prog-fill').style.width; // keep current %
+    stEl.textContent = '⏹  Stopped';
+    stEl.style.color = 'var(--ylw)';
+  } else if (success) {
+    fill.style.width = '100%';
+    fill.classList.add('done');
+    stEl.textContent = '✓  Complete';
+    stEl.style.color = 'var(--grn)';
+  } else {
+    stEl.textContent = '✗  Error';
+    stEl.style.color = 'var(--red)';
+  }
+
+  const rows = finalRows || rowCount;
+  if (filePath) {
+    toast('success', '💾', `Saved ${rows} rows`, filePath, 'Show File', () => a.showFile(filePath));
+  } else if (stopped) {
+    toast('warn', '⏹', 'Scraping stopped', `${rows} rows collected`);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function setRunning(r) {
+  document.getElementById('btn-start').disabled = r;
+  document.getElementById('btn-stop').disabled  = !r;
+  document.getElementById('btn-stop').innerHTML = r
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Stop'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Stop';
+
+  const dot = document.getElementById('tb-dot');
+  const st  = document.getElementById('stat-status-text');
+
+  if (r) {
+    dot.classList.add('running');
+    st.textContent = '● Running';
+    st.style.color = 'var(--acc2)';
+  } else {
+    dot.classList.remove('running');
+    if (st.textContent === '● Running') {
+      st.textContent  = 'Idle';
+      st.style.color  = '';
+    }
+  }
+}
+
+function resetUI() {
+  rowCount = 0; logCount = 0; errorCount = 0; columns = [];
+  lastSaved = null;
+
+  document.getElementById('sv-rows').textContent      = '0';
+  document.getElementById('sv-page').textContent      = '—';
+  document.getElementById('sv-listings').textContent  = '0';
+  document.getElementById('sv-errors').textContent    = '0';
+  document.getElementById('badge-rows').textContent   = '0';
+  document.getElementById('badge-logs').textContent   = '0';
+  document.getElementById('prog-fill').style.width    = '0%';
+  document.getElementById('prog-fill').className      = 'prog-fill';
+  document.getElementById('prog-pct').textContent     = '0%';
+  document.getElementById('prog-label').textContent   = 'Starting...';
+  document.getElementById('stat-status-text').style.color = '';
+
+  document.getElementById('tbl-head').innerHTML  = '';
+  document.getElementById('tbl-body').innerHTML  = '';
+  document.getElementById('results-table').style.display = 'none';
+  document.getElementById('empty-state').style.display   = '';
+  document.getElementById('console-wrap').innerHTML = '';
+}
+
+function startTimer() {
+  startTime = Date.now();
+  if (timerHandle) clearInterval(timerHandle);
+  const el = document.getElementById('tb-runtime');
+  el.classList.add('active');
+  timerHandle = setInterval(() => {
+    const s   = Math.floor((Date.now() - startTime) / 1000);
+    const m   = String(Math.floor(s / 60)).padStart(2, '0');
+    const sec = String(s % 60).padStart(2, '0');
+    el.textContent = `${m}:${sec}`;
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+  document.getElementById('tb-runtime').classList.remove('active');
+}
+
+function toast(type, icon, title, sub, actLabel, actFn) {
+  document.getElementById('toast-icon').textContent  = icon;
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-sub').textContent   = typeof sub === 'string' ? sub : '';
+  document.getElementById('toast').className = `show ${type}`;
+
+  const actEl = document.getElementById('toast-act');
+  if (actLabel && actFn) {
+    actEl.textContent = actLabel;
+    actEl.onclick = actFn;
+    actEl.classList.remove('hidden');
+  } else {
+    actEl.classList.add('hidden');
+  }
+
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => document.getElementById('toast').classList.remove('show'), 7000);
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ── Auto-scroll detection ─────────────────────────────────────────────────
+document.getElementById('table-scroll').addEventListener('scroll', function() {
+  autoScrollTable = (this.scrollHeight - this.clientHeight - this.scrollTop) < 60;
+});
+document.getElementById('console-wrap').addEventListener('scroll', function() {
+  autoScrollConsole = (this.scrollHeight - this.clientHeight - this.scrollTop) < 60;
+});
+</script>
+</body>
+</html>

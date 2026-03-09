@@ -1,0 +1,61 @@
+{
+  "name": "mastrscraper",
+  "version": "1.0.0",
+  "description": "MaStR Stammdatenregister Scraper Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "playwright-core": "1.44.1",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "electron": "30.0.9",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.mastrscraper.app",
+    "productName": "MaStR Scraper",
+    "copyright": "Copyright © 2024",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MaStR Scraper",
+      "deleteAppDataOnUninstall": false
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "scraper.js",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "browsers",
+        "to": "browsers",
+        "filter": ["**/*"]
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/playwright-core/**/*"
+    ]
+  }
+}
