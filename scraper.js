@@ -85,7 +85,22 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   let browser = null;
   let context = null;
 
-  // ================= SAFE GOTO — matches original exactly =================
+  // ── SPEED: block images/fonts/CSS/media — pages load 3-5x faster ──────────
+  // Only applies to detail + operator pages, not the listing page
+  async function blockHeavyAssets(page) {
+    await page.route('**/*', (route) => {
+      const t = route.request().resourceType();
+      if (t === 'image' || t === 'font' || t === 'stylesheet' || t === 'media') {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+  }
+
+  // ================= SAFE GOTO =================
+  // networkidle removed — it adds up to 30s per page and is redundant
+  // because every caller already waitForSelector on a specific element after this.
   async function safeGoto(page, url, attempt) {
     attempt = attempt || 1;
     const MAX_ATTEMPTS = 3;
@@ -93,14 +108,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
     try {
       await page.goto(url, { timeout: TIMEOUT, waitUntil: 'domcontentloaded' });
-
-      try {
-        await page.waitForLoadState('networkidle', { timeout: 30000 });
-      } catch (_) {
-        log('warn', 'networkidle timeout (non-fatal), continuing...');
-      }
-
-      await sleep(500);
+      await sleep(200); // minimal buffer for JS to start executing
     } catch (err) {
       if (attempt < MAX_ATTEMPTS) {
         const delay = attempt * 3000;
@@ -113,7 +121,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= GENERIC RETRY WRAPPER — matches original exactly =================
+  // ================= GENERIC RETRY WRAPPER =================
   async function withRetry(label, fn, maxAttempts) {
     maxAttempts = maxAttempts || 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -132,7 +140,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= COLLECT URLs — matches original exactly =================
+  // ================= COLLECT URLs =================
   async function collectAllDetailUrlsOnPage(page) {
     await page.waitForSelector('.k-grid-content tbody tr.k-master-row[data-uid]', { timeout: 90000 });
 
@@ -149,7 +157,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
         const uid = await row.getAttribute('data-uid');
         if (!uid || seen.has(uid)) continue;
         seen.add(uid);
-
         const link = await page.$('tr[data-uid="' + uid + '"] a.js-grid-detail');
         if (link) {
           const href = await link.getAttribute('href');
@@ -158,7 +165,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       }
 
       await page.evaluate((el) => (el.scrollTop = el.scrollHeight), grid);
-      await sleep(900);
+      await sleep(900); // unchanged — grid needs time to render new rows
 
       if (seen.size === before) {
         noProgressStreak++;
@@ -171,9 +178,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     return detailUrls;
   }
 
-  // ================= SCRAPE ALLGEMEINE DATEN — matches original exactly =================
+  // ================= SCRAPE ALLGEMEINE DATEN =================
   async function scrapeAllgemeineDaten(context, url) {
     const page = await context.newPage();
+    await blockHeavyAssets(page); // block assets — contact page needs no images
     try {
       await withRetry('AllgemeineDaten ' + url, async () => {
         await safeGoto(page, url);
@@ -186,7 +194,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       for (const row of rows) {
         const cells = await row.$$('td');
         if (cells.length < 2) continue;
-
         const className = await row.getAttribute('class');
         let key = '';
         switch (className) {
@@ -196,12 +203,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           case 'detailstammdaten web':   key = 'Anlagenbetreiber | Website'; break;
           default: continue;
         }
-
         const val = (await cells[1].innerText()).trim();
         data[key] = val || '';
         log('info', key.padEnd(25, ' ') + ' : ' + val);
       }
-
       return data;
     } catch (e) {
       log('error', 'AllgemeineDaten error (giving up): ' + e.message);
@@ -211,9 +216,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= SCRAPE DETAIL PAGE — matches original exactly =================
+  // ================= SCRAPE DETAIL PAGE =================
   async function scrapeDetailPage(context, url) {
     const page = await context.newPage();
+    await blockHeavyAssets(page); // block assets — data tables need no images/CSS
     try {
       await withRetry('DetailPage ' + url, async () => {
         await safeGoto(page, url);
@@ -221,10 +227,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       });
 
       const data = { 'Detail URL': url };
-
-      log('info', '==============================');
       log('info', 'DETAIL PAGE: ' + url);
-      log('info', '==============================');
 
       const tabs = await page.$$('ul.nav-tabs li a');
 
@@ -234,13 +237,9 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           tabName = (await tab.innerText()).trim();
           await tab.click();
 
+          // waitForSelector is the real guard — networkidle removed (was wasting up to 20s per tab)
           await page.waitForSelector('div.tab-pane.active', { timeout: 30000 });
-          try {
-            await page.waitForLoadState('networkidle', { timeout: 20000 });
-          } catch (_) {
-            // Non-fatal — tab content is still readable
-          }
-          await sleep(400);
+          await sleep(150); // minimal buffer for tab JS to finish rendering
 
           const panel = await page.$('div.tab-pane.active');
           if (!panel) continue;
@@ -251,7 +250,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
             for (const row of rows) {
               const cells = await row.$$('td');
               if (cells.length < 2) continue;
-
               const key = (await cells[0].innerText()).trim().replace(/:$/, '');
               const val = (await cells[1].innerText()).trim();
               if (key) data[tabName + ' | ' + key] = val || '';
@@ -283,42 +281,36 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= SAVE EXCEL — matches original exactly =================
+  // ================= SAVE EXCEL =================
   function saveCleanExcel() {
     if (!allData.length) return;
-
     const headersSet = new Set();
     allData.forEach((row) => Object.keys(row).forEach((key) => headersSet.add(key)));
     const headers = Array.from(headersSet);
-
     const formattedData = allData.map((row) => {
       const newRow = {};
       headers.forEach((h) => (newRow[h] = row[h] || ''));
       return newRow;
     });
-
     const ws = xlsx.utils.json_to_sheet(formattedData, { header: headers });
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, 'MaStR');
     ws['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 15) }));
-
     xlsx.writeFile(wb, filePath);
     log('success', 'Auto-saved: ' + filePath);
     log('info', 'Total rows: ' + formattedData.length);
   }
 
-  // ================= CONCURRENCY POOL — matches original exactly =================
+  // ================= CONCURRENCY POOL =================
   async function runWithConcurrency(tasks, limit, handler) {
     const results = [];
     let idx = 0;
-
     async function worker() {
       while (idx < tasks.length) {
         const current = idx++;
         results[current] = await handler(tasks[current], current);
       }
     }
-
     await Promise.all(Array.from({ length: limit }, () => worker()));
     return results;
   }
@@ -337,7 +329,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
 
     log('info', 'Launching browser...');
-
     browser = await chromium.launch({
       headless: false,
       executablePath: executablePath,
@@ -354,7 +345,8 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     });
 
     const page = await context.newPage();
-
+    // NOTE: do NOT block assets on the listing page —
+    // the Kendo grid JS requires CSS/scripts to render rows correctly
     log('info', 'Loading: ' + LISTING_URL);
     await safeGoto(page, LISTING_URL);
 
@@ -405,7 +397,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       saveCleanExcel();
 
       if (stopSignal.stopped || pageNum === MAX_PAGES) {
-        log('info', 'Reached final page. Stopping.');
+        log('info', 'Reaching final page. Stopping.');
         break;
       }
 
@@ -434,6 +426,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     onDone({ success: true, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped: stopped });
 
   } catch (e) {
+    log('error', 'FATAL: ' + e.message);
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
     if (allData.length) saveCleanExcel();
