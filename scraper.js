@@ -1,4 +1,4 @@
-// scraper.js — 1:1 port of the original standalone script
+// scraper.js
 'use strict';
 
 function findChromiumExecutable() {
@@ -52,7 +52,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   const fs   = require('fs');
   const path = require('path');
 
-  // ── Config ────────────────────────────────────────────────────────────────
   const LISTING_URL = config.url;
   const MAX_PAGES   = config.maxPages;
   const CONCURRENCY = config.concurrency;
@@ -64,19 +63,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   const log   = (level, text) => onLog(level, text);
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
-  // Log received config so you can verify in the console tab
-  log('info', '--- CONFIG ---');
-  log('info', 'MAX_PAGES   = ' + MAX_PAGES);
-  log('info', 'CONCURRENCY = ' + CONCURRENCY);
-  log('info', 'URL         = ' + LISTING_URL);
-  log('info', '--------------');
-
-  // ── BASE origin ───────────────────────────────────────────────────────────
   let BASE;
   try { const u = new URL(LISTING_URL); BASE = u.protocol + '//' + u.host; }
   catch (_) { BASE = 'https://www.marktstammdatenregister.de'; }
 
-  // ── Save path ─────────────────────────────────────────────────────────────
   if (!fs.existsSync(saveFolder)) fs.mkdirSync(saveFolder, { recursive: true });
   const safeFileName = (fileName || 'MaStR_units').replace(/[\\/:*?"<>|]/g, '_');
   const filePath = path.join(saveFolder, safeFileName + '.xlsx');
@@ -85,23 +75,14 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   let browser = null;
   let context = null;
 
-  // ================= SAFE GOTO (3 retries + networkidle) ===================
-  // Identical to original script
+  // ================= SAFE GOTO =================
+  // Uses domcontentloaded — no networkidle wait.
+  // The specific waitForSelector in each caller is the real readiness guard.
   async function safeGoto(page, url, attempt) {
     attempt = attempt || 1;
     const MAX_ATTEMPTS = 3;
-    const TIMEOUT = 120000;
-
     try {
-      await page.goto(url, { timeout: TIMEOUT, waitUntil: 'domcontentloaded' });
-
-      try {
-        await page.waitForLoadState('networkidle', { timeout: 30000 });
-      } catch (_) {
-        log('warn', 'networkidle timeout (non-fatal), continuing...');
-      }
-
-      await sleep(500);
+      await page.goto(url, { timeout: 120000, waitUntil: 'domcontentloaded' });
     } catch (err) {
       if (attempt < MAX_ATTEMPTS) {
         const delay = attempt * 3000;
@@ -114,8 +95,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= GENERIC RETRY WRAPPER =================================
-  // Identical to original script
+  // ================= GENERIC RETRY WRAPPER =================
   async function withRetry(label, fn, maxAttempts) {
     maxAttempts = maxAttempts || 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -124,50 +104,33 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       } catch (err) {
         if (attempt < maxAttempts) {
           const delay = attempt * 4000;
-          log('warn', '[' + label + '] Attempt ' + attempt + '/' + maxAttempts + ' failed: ' + err.message + ' — retrying in ' + (delay / 1000) + 's');
+          log('warn', '[' + label + '] attempt ' + attempt + '/' + maxAttempts + ' failed — retrying in ' + (delay / 1000) + 's');
           await sleep(delay);
         } else {
-          log('error', '[' + label + '] All ' + maxAttempts + ' attempts failed: ' + err.message);
+          log('error', '[' + label + '] all ' + maxAttempts + ' attempts failed: ' + err.message);
           throw err;
         }
       }
     }
   }
 
-  // ================= COLLECT URLs ===========================================
-  // Identical to original script
+  // ================= COLLECT URLs =================
+  // NO scrolling — MaStR renders exactly the current page's rows in the DOM.
+  // Scrolling the grid container triggers virtual scroll which bleeds in rows
+  // from the next page, causing 14-15 results when there should be 10.
   async function collectAllDetailUrlsOnPage(page) {
+    // Wait until at least one row is present
     await page.waitForSelector('.k-grid-content tbody tr.k-master-row[data-uid]', { timeout: 90000 });
 
-    const grid = await page.$('.k-grid-content');
-    const seen = new Set();
+    // Read only what is currently in the DOM — no scrolling
+    const rows = await page.$$('.k-grid-content tbody tr.k-master-row[data-uid]');
     const detailUrls = [];
-    let noProgressStreak = 0;
 
-    while (true) {
-      const rows = await page.$$('.k-grid-content tbody tr.k-master-row[data-uid]');
-      const before = seen.size;
-
-      for (const row of rows) {
-        const uid = await row.getAttribute('data-uid');
-        if (!uid || seen.has(uid)) continue;
-        seen.add(uid);
-
-        const link = await page.$('tr[data-uid="' + uid + '"] a.js-grid-detail');
-        if (link) {
-          const href = await link.getAttribute('href');
-          if (href) detailUrls.push(BASE + href);
-        }
-      }
-
-      await page.evaluate((el) => (el.scrollTop = el.scrollHeight), grid);
-      await sleep(900);
-
-      if (seen.size === before) {
-        noProgressStreak++;
-        if (noProgressStreak >= 3) break;
-      } else {
-        noProgressStreak = 0;
+    for (const row of rows) {
+      const link = await row.$('a.js-grid-detail');
+      if (link) {
+        const href = await link.getAttribute('href');
+        if (href) detailUrls.push(BASE + href);
       }
     }
 
@@ -175,14 +138,14 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     return detailUrls;
   }
 
-  // ================= SCRAPE ALLGEMEINE DATEN ================================
-  // Identical to original script
+  // ================= SCRAPE ALLGEMEINE DATEN =================
   async function scrapeAllgemeineDaten(context, url) {
     const page = await context.newPage();
     try {
-      await withRetry('AllgemeineDaten ' + url, async () => {
+      await withRetry('AllgemeineDaten', async () => {
         await safeGoto(page, url);
-        await page.waitForSelector('div.panel-body', { timeout: 90000 });
+        // Wait for the actual content — this is the readiness signal, no networkidle needed
+        await page.waitForSelector('div.panel-body table tr', { timeout: 90000 });
       });
 
       const data = {};
@@ -216,21 +179,18 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= SCRAPE DETAIL PAGE =====================================
-  // Identical to original script
+  // ================= SCRAPE DETAIL PAGE =================
   async function scrapeDetailPage(context, url) {
     const page = await context.newPage();
     try {
-      await withRetry('DetailPage ' + url, async () => {
+      await withRetry('DetailPage', async () => {
         await safeGoto(page, url);
-        await page.waitForSelector('ul.nav-tabs', { timeout: 90000 });
+        // Wait for the tabs — this means the page JS has run and the UI is ready
+        await page.waitForSelector('ul.nav-tabs li a', { timeout: 90000 });
       });
 
       const data = { 'Detail URL': url };
-
-      log('info', '==============================');
-      log('info', 'DETAIL PAGE: ' + url);
-      log('info', '==============================');
+      log('info', 'DETAIL: ' + url);
 
       const tabs = await page.$$('ul.nav-tabs li a');
 
@@ -240,13 +200,18 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           tabName = (await tab.innerText()).trim();
           await tab.click();
 
+          // Wait for the active panel to appear
           await page.waitForSelector('div.tab-pane.active', { timeout: 30000 });
+
+          // Wait for at least one table row inside the active panel.
+          // This is the real signal that AJAX data has loaded — replaces networkidle.
+          // If no rows appear within 8s the tab is genuinely empty — that is fine.
           try {
-            await page.waitForLoadState('networkidle', { timeout: 20000 });
+            await page.waitForSelector('div.tab-pane.active table tr', { timeout: 8000 });
           } catch (_) {
-            // Non-fatal — tab content is still readable
+            // Tab has no table data — skip it cleanly
+            continue;
           }
-          await sleep(400);
 
           const panel = await page.$('div.tab-pane.active');
           if (!panel) continue;
@@ -282,78 +247,63 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
       return data;
     } catch (e) {
-      log('error', 'Detail page error (giving up): ' + url + ' ' + e.message);
+      log('error', 'Detail page error (giving up): ' + url + ' — ' + e.message);
       return { 'Detail URL': url, 'Error': e.message };
     } finally {
       await page.close().catch(() => {});
     }
   }
 
-  // ================= SAVE EXCEL =============================================
-  // Identical to original script
-  function saveCleanExcel(data, filePath) {
-    if (!data.length) return;
-
+  // ================= SAVE EXCEL =================
+  function saveCleanExcel() {
+    if (!allData.length) return;
     const headersSet = new Set();
-    data.forEach((row) => Object.keys(row).forEach((key) => headersSet.add(key)));
+    allData.forEach((row) => Object.keys(row).forEach((key) => headersSet.add(key)));
     const headers = Array.from(headersSet);
-
-    const formattedData = data.map((row) => {
+    const formattedData = allData.map((row) => {
       const newRow = {};
       headers.forEach((h) => (newRow[h] = row[h] || ''));
       return newRow;
     });
-
     const ws = xlsx.utils.json_to_sheet(formattedData, { header: headers });
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, 'MaStR');
     ws['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 15) }));
-
     xlsx.writeFile(wb, filePath);
     log('success', 'Auto-saved: ' + filePath);
     log('info', 'Total rows: ' + formattedData.length);
   }
 
-  // ================= CONCURRENCY POOL ======================================
-  // Identical to original script
+  // ================= CONCURRENCY POOL =================
   async function runWithConcurrency(tasks, limit, handler) {
     const results = [];
     let idx = 0;
-
     async function worker() {
       while (idx < tasks.length) {
         const current = idx++;
         results[current] = await handler(tasks[current], current);
       }
     }
-
     await Promise.all(Array.from({ length: limit }, () => worker()));
     return results;
   }
 
-  // ================= MAIN ===================================================
-  // Identical to original main() — only differences:
-  // 1. playwright-core + findChromiumExecutable() instead of playwright
-  // 2. --no-sandbox args (required for Chromium inside Electron on Windows)
-  // 3. config values from UI instead of hardcoded constants
-  // 4. log() instead of console.log()
-  // 5. onRow/onProgress/onDone callbacks for the UI
+  // ================= MAIN =================
   try {
-    log('info', 'Finding Chromium executable...');
+    log('info', 'Finding Chromium...');
     let executablePath;
     try {
       executablePath = findChromiumExecutable();
-      log('info', 'Chromium found: ' + executablePath);
+      log('info', 'Chromium: ' + executablePath);
     } catch (e) {
       log('error', e.message);
       onDone({ success: false, error: e.message, filePath: null, rowCount: 0, stopped: false });
       return;
     }
 
-    log('info', 'Launching browser...');
     browser = await chromium.launch({
       headless: false,
-      executablePath: executablePath,
+      executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
 
@@ -364,35 +314,33 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
     const page = await context.newPage();
 
+    log('info', 'Loading listing page...');
     await safeGoto(page, LISTING_URL);
-
     await page.waitForSelector('button.gridReloadBtn', { timeout: 90000 });
     await page.click('button.gridReloadBtn');
-    await sleep(3000);
+
+    // Wait for the grid rows to actually appear after reload — replaces sleep(3000)
+    await page.waitForSelector('.k-grid-content tbody tr.k-master-row[data-uid]', { timeout: 90000 });
 
     let pageNum = 1;
 
     while (pageNum <= MAX_PAGES) {
       if (stopSignal.stopped) break;
 
-      log('info', 'PROCESSING PAGE ' + pageNum + '/' + MAX_PAGES);
-
+      log('info', 'PAGE ' + pageNum + '/' + MAX_PAGES);
       onProgress({
-        page: pageNum,
-        maxPages: MAX_PAGES,
+        page: pageNum, maxPages: MAX_PAGES,
         pct: ((pageNum - 1) / MAX_PAGES) * 100,
         label: 'Page ' + pageNum + '/' + MAX_PAGES + ' — collecting listings...',
         totalRows: allData.length,
       });
 
       const detailUrls = await collectAllDetailUrlsOnPage(page);
-      log('info', 'Found ' + detailUrls.length + ' listings on page ' + pageNum);
-
       if (stopSignal.stopped) break;
 
       let scraped = 0;
-
       await runWithConcurrency(detailUrls, CONCURRENCY, async (url, i) => {
+        if (stopSignal.stopped) return;
         log('info', 'Scraping ' + (i + 1) + '/' + detailUrls.length + ': ' + url);
         try {
           const row = await scrapeDetailPage(context, url);
@@ -400,8 +348,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           onRow(row);
           scraped++;
           onProgress({
-            page: pageNum,
-            maxPages: MAX_PAGES,
+            page: pageNum, maxPages: MAX_PAGES,
             pct: ((pageNum - 1) / MAX_PAGES + (scraped / detailUrls.length) / MAX_PAGES) * 100,
             label: 'Page ' + pageNum + '/' + MAX_PAGES + ' — row ' + scraped + '/' + detailUrls.length,
             totalRows: allData.length,
@@ -411,21 +358,22 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
         }
       });
 
-      saveCleanExcel(allData, filePath);
+      saveCleanExcel();
 
-      if (pageNum === MAX_PAGES) {
+      if (stopSignal.stopped || pageNum === MAX_PAGES) {
         log('info', 'Reached final page. Stopping.');
         break;
       }
 
       const nextBtn = await page.$('button[aria-label="N\u00e4chste Seite"]:not([aria-disabled="true"])');
-      if (!nextBtn) {
-        log('info', 'No next page button found. Stopping.');
-        break;
-      }
+      if (!nextBtn) { log('info', 'No next page. Stopping.'); break; }
 
       await nextBtn.click();
-      await sleep(3000);
+
+      // Wait for the NEW page rows to load — replaces sleep(3000)
+      // First wait for old rows to detach, then wait for new rows to appear
+      await page.waitForSelector('.k-grid-content tbody tr.k-master-row[data-uid]', { timeout: 90000 });
+
       pageNum++;
     }
 
@@ -433,21 +381,18 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     await browser.close().catch(() => {});
 
     const stopped = stopSignal.stopped;
-    log(
-      stopped ? 'warn' : 'success',
+    log(stopped ? 'warn' : 'success',
       stopped
-        ? 'Stopped by user — ' + allData.length + ' rows saved.'
-        : 'Scraping complete! ' + allData.length + ' rows saved to ' + filePath
-    );
+        ? 'Stopped — ' + allData.length + ' rows saved.'
+        : 'Done! ' + allData.length + ' rows saved to ' + filePath);
 
-    onDone({ success: true, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped: stopped });
+    onDone({ success: true, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped });
 
   } catch (e) {
     log('error', 'FATAL: ' + e.message);
     if (context) await context.close().catch(() => {});
     if (browser)  await browser.close().catch(() => {});
-    if (allData.length) saveCleanExcel(allData, filePath);
+    if (allData.length) saveCleanExcel();
     onDone({ success: false, error: e.message, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped: false });
-    // do NOT rethrow — onDone already reported the error to the UI
   }
 };
