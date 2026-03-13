@@ -448,6 +448,6 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     if (browser)  await browser.close().catch(() => {});
     if (allData.length) saveCleanExcel(allData, filePath);
     onDone({ success: false, error: e.message, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped: false });
-    throw e;
+    // do NOT rethrow — onDone already reported the error to the UI
   }
 };
