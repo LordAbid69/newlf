@@ -89,6 +89,8 @@ ipcMain.on('scraper:start', async (_, config) => {
   // Load scraper module — works both in dev and packaged (asar)
   let runScraper;
   try {
+    // Clear require cache so each run gets a fresh module with fresh closures
+    delete require.cache[require.resolve('./scraper.js')];
     runScraper = require('./scraper.js');
   } catch (e) {
     send('scraper:log', { level: 'error', text: `Failed to load scraper module: ${e.message}` });
