@@ -1,4 +1,4 @@
-// scraper.js
+// scraper.js — 1:1 port of the original standalone script
 'use strict';
 
 function findChromiumExecutable() {
@@ -7,11 +7,9 @@ function findChromiumExecutable() {
 
   var browsersRoot = process.env.PLAYWRIGHT_BROWSERS_PATH;
   if (!browsersRoot) {
-    if (process.resourcesPath) {
-      browsersRoot = path.join(process.resourcesPath, 'browsers');
-    } else {
-      browsersRoot = path.join(__dirname, 'browsers');
-    }
+    browsersRoot = process.resourcesPath
+      ? path.join(process.resourcesPath, 'browsers')
+      : path.join(__dirname, 'browsers');
   }
 
   if (!fs.existsSync(browsersRoot)) {
@@ -39,9 +37,7 @@ function findChromiumExecutable() {
     try {
       fs.readdirSync(browsersRoot).forEach(function(e) {
         tree += e + '\n';
-        try {
-          fs.readdirSync(path.join(browsersRoot, e)).forEach(function(f) { tree += '    ' + f + '\n'; });
-        } catch (_) {}
+        try { fs.readdirSync(path.join(browsersRoot, e)).forEach(function(f) { tree += '    ' + f + '\n'; }); } catch (_) {}
       });
     } catch (_) {}
     throw new Error('chrome.exe not found inside: ' + browsersRoot + '\nContents:\n' + tree + '\nRun BUILD.bat again.');
@@ -52,31 +48,35 @@ function findChromiumExecutable() {
 
 module.exports = async function runScraper(config, callbacks, stopSignal) {
   const { chromium } = require('playwright-core');
-  const xlsx  = require('xlsx');
-  const fs    = require('fs');
-  const path  = require('path');
+  const xlsx = require('xlsx');
+  const fs   = require('fs');
+  const path = require('path');
 
-  const {
-    url: LISTING_URL,
-    maxPages: MAX_PAGES,
-    concurrency: CONCURRENCY,
-    saveFolder,
-    fileName,
-  } = config;
+  // ── Config ────────────────────────────────────────────────────────────────
+  const LISTING_URL = config.url;
+  const MAX_PAGES   = config.maxPages;
+  const CONCURRENCY = config.concurrency;
+  const saveFolder  = config.saveFolder;
+  const fileName    = config.fileName;
 
   const { onLog, onRow, onProgress, onDone } = callbacks;
 
-  let BASE;
-  try {
-    const u = new URL(LISTING_URL);
-    BASE = u.protocol + '//' + u.host;
-  } catch (_) {
-    BASE = 'https://www.marktstammdatenregister.de';
-  }
-
-  const log   = (level, text) => { onLog(level, text); };
+  const log   = (level, text) => onLog(level, text);
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
+  // Log received config so you can verify in the console tab
+  log('info', '--- CONFIG ---');
+  log('info', 'MAX_PAGES   = ' + MAX_PAGES);
+  log('info', 'CONCURRENCY = ' + CONCURRENCY);
+  log('info', 'URL         = ' + LISTING_URL);
+  log('info', '--------------');
+
+  // ── BASE origin ───────────────────────────────────────────────────────────
+  let BASE;
+  try { const u = new URL(LISTING_URL); BASE = u.protocol + '//' + u.host; }
+  catch (_) { BASE = 'https://www.marktstammdatenregister.de'; }
+
+  // ── Save path ─────────────────────────────────────────────────────────────
   if (!fs.existsSync(saveFolder)) fs.mkdirSync(saveFolder, { recursive: true });
   const safeFileName = (fileName || 'MaStR_units').replace(/[\\/:*?"<>|]/g, '_');
   const filePath = path.join(saveFolder, safeFileName + '.xlsx');
@@ -85,22 +85,8 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   let browser = null;
   let context = null;
 
-  // ── SPEED: block images/fonts/CSS/media — pages load 3-5x faster ──────────
-  // Only applies to detail + operator pages, not the listing page
-  async function blockHeavyAssets(page) {
-    await page.route('**/*', (route) => {
-      const t = route.request().resourceType();
-      if (t === 'image' || t === 'font' || t === 'stylesheet' || t === 'media') {
-        route.abort();
-      } else {
-        route.continue();
-      }
-    });
-  }
-
-  // ================= SAFE GOTO =================
-  // networkidle removed — it adds up to 30s per page and is redundant
-  // because every caller already waitForSelector on a specific element after this.
+  // ================= SAFE GOTO (3 retries + networkidle) ===================
+  // Identical to original script
   async function safeGoto(page, url, attempt) {
     attempt = attempt || 1;
     const MAX_ATTEMPTS = 3;
@@ -108,11 +94,13 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
     try {
       await page.goto(url, { timeout: TIMEOUT, waitUntil: 'domcontentloaded' });
+
       try {
         await page.waitForLoadState('networkidle', { timeout: 30000 });
       } catch (_) {
         log('warn', 'networkidle timeout (non-fatal), continuing...');
       }
+
       await sleep(500);
     } catch (err) {
       if (attempt < MAX_ATTEMPTS) {
@@ -126,7 +114,8 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= GENERIC RETRY WRAPPER =================
+  // ================= GENERIC RETRY WRAPPER =================================
+  // Identical to original script
   async function withRetry(label, fn, maxAttempts) {
     maxAttempts = maxAttempts || 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -145,7 +134,8 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= COLLECT URLs =================
+  // ================= COLLECT URLs ===========================================
+  // Identical to original script
   async function collectAllDetailUrlsOnPage(page) {
     await page.waitForSelector('.k-grid-content tbody tr.k-master-row[data-uid]', { timeout: 90000 });
 
@@ -162,6 +152,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
         const uid = await row.getAttribute('data-uid');
         if (!uid || seen.has(uid)) continue;
         seen.add(uid);
+
         const link = await page.$('tr[data-uid="' + uid + '"] a.js-grid-detail');
         if (link) {
           const href = await link.getAttribute('href');
@@ -170,7 +161,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       }
 
       await page.evaluate((el) => (el.scrollTop = el.scrollHeight), grid);
-      await sleep(900); // unchanged — grid needs time to render new rows
+      await sleep(900);
 
       if (seen.size === before) {
         noProgressStreak++;
@@ -180,13 +171,14 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       }
     }
 
+    log('info', 'Collected ' + detailUrls.length + ' URLs from this page');
     return detailUrls;
   }
 
-  // ================= SCRAPE ALLGEMEINE DATEN =================
+  // ================= SCRAPE ALLGEMEINE DATEN ================================
+  // Identical to original script
   async function scrapeAllgemeineDaten(context, url) {
     const page = await context.newPage();
-    await blockHeavyAssets(page); // block assets — contact page needs no images
     try {
       await withRetry('AllgemeineDaten ' + url, async () => {
         await safeGoto(page, url);
@@ -199,6 +191,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       for (const row of rows) {
         const cells = await row.$$('td');
         if (cells.length < 2) continue;
+
         const className = await row.getAttribute('class');
         let key = '';
         switch (className) {
@@ -208,10 +201,12 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           case 'detailstammdaten web':   key = 'Anlagenbetreiber | Website'; break;
           default: continue;
         }
+
         const val = (await cells[1].innerText()).trim();
         data[key] = val || '';
         log('info', key.padEnd(25, ' ') + ' : ' + val);
       }
+
       return data;
     } catch (e) {
       log('error', 'AllgemeineDaten error (giving up): ' + e.message);
@@ -221,10 +216,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= SCRAPE DETAIL PAGE =================
+  // ================= SCRAPE DETAIL PAGE =====================================
+  // Identical to original script
   async function scrapeDetailPage(context, url) {
     const page = await context.newPage();
-    await blockHeavyAssets(page); // block assets — data tables need no images/CSS
     try {
       await withRetry('DetailPage ' + url, async () => {
         await safeGoto(page, url);
@@ -232,7 +227,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       });
 
       const data = { 'Detail URL': url };
+
+      log('info', '==============================');
       log('info', 'DETAIL PAGE: ' + url);
+      log('info', '==============================');
 
       const tabs = await page.$$('ul.nav-tabs li a');
 
@@ -245,7 +243,9 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
           await page.waitForSelector('div.tab-pane.active', { timeout: 30000 });
           try {
             await page.waitForLoadState('networkidle', { timeout: 20000 });
-          } catch (_) {}
+          } catch (_) {
+            // Non-fatal — tab content is still readable
+          }
           await sleep(400);
 
           const panel = await page.$('div.tab-pane.active');
@@ -257,6 +257,7 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
             for (const row of rows) {
               const cells = await row.$$('td');
               if (cells.length < 2) continue;
+
               const key = (await cells[0].innerText()).trim().replace(/:$/, '');
               const val = (await cells[1].innerText()).trim();
               if (key) data[tabName + ' | ' + key] = val || '';
@@ -288,41 +289,55 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     }
   }
 
-  // ================= SAVE EXCEL =================
-  function saveCleanExcel() {
-    if (!allData.length) return;
+  // ================= SAVE EXCEL =============================================
+  // Identical to original script
+  function saveCleanExcel(data, filePath) {
+    if (!data.length) return;
+
     const headersSet = new Set();
-    allData.forEach((row) => Object.keys(row).forEach((key) => headersSet.add(key)));
+    data.forEach((row) => Object.keys(row).forEach((key) => headersSet.add(key)));
     const headers = Array.from(headersSet);
-    const formattedData = allData.map((row) => {
+
+    const formattedData = data.map((row) => {
       const newRow = {};
       headers.forEach((h) => (newRow[h] = row[h] || ''));
       return newRow;
     });
+
     const ws = xlsx.utils.json_to_sheet(formattedData, { header: headers });
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, 'MaStR');
     ws['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 15) }));
+
     xlsx.writeFile(wb, filePath);
     log('success', 'Auto-saved: ' + filePath);
     log('info', 'Total rows: ' + formattedData.length);
   }
 
-  // ================= CONCURRENCY POOL =================
+  // ================= CONCURRENCY POOL ======================================
+  // Identical to original script
   async function runWithConcurrency(tasks, limit, handler) {
     const results = [];
     let idx = 0;
+
     async function worker() {
       while (idx < tasks.length) {
         const current = idx++;
         results[current] = await handler(tasks[current], current);
       }
     }
+
     await Promise.all(Array.from({ length: limit }, () => worker()));
     return results;
   }
 
-  // ================= MAIN FLOW =================
+  // ================= MAIN ===================================================
+  // Identical to original main() — only differences:
+  // 1. playwright-core + findChromiumExecutable() instead of playwright
+  // 2. --no-sandbox args (required for Chromium inside Electron on Windows)
+  // 3. config values from UI instead of hardcoded constants
+  // 4. log() instead of console.log()
+  // 5. onRow/onProgress/onDone callbacks for the UI
   try {
     log('info', 'Finding Chromium executable...');
     let executablePath;
@@ -339,22 +354,16 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
     browser = await chromium.launch({
       headless: false,
       executablePath: executablePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
 
     context = await browser.newContext({
       navigationTimeout: 120000,
-      actionTimeout:      60000,
+      actionTimeout: 60000,
     });
 
     const page = await context.newPage();
-    // NOTE: do NOT block assets on the listing page —
-    // the Kendo grid JS requires CSS/scripts to render rows correctly
-    log('info', 'Loading: ' + LISTING_URL);
+
     await safeGoto(page, LISTING_URL);
 
     await page.waitForSelector('button.gridReloadBtn', { timeout: 90000 });
@@ -363,7 +372,9 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
 
     let pageNum = 1;
 
-    while (pageNum <= MAX_PAGES && !stopSignal.stopped) {
+    while (pageNum <= MAX_PAGES) {
+      if (stopSignal.stopped) break;
+
       log('info', 'PROCESSING PAGE ' + pageNum + '/' + MAX_PAGES);
 
       onProgress({
@@ -375,14 +386,13 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
       });
 
       const detailUrls = await collectAllDetailUrlsOnPage(page);
-      log('info', 'Found ' + detailUrls.length + ' listings');
+      log('info', 'Found ' + detailUrls.length + ' listings on page ' + pageNum);
 
       if (stopSignal.stopped) break;
 
       let scraped = 0;
 
       await runWithConcurrency(detailUrls, CONCURRENCY, async (url, i) => {
-        if (stopSignal.stopped) return;
         log('info', 'Scraping ' + (i + 1) + '/' + detailUrls.length + ': ' + url);
         try {
           const row = await scrapeDetailPage(context, url);
@@ -401,10 +411,10 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
         }
       });
 
-      saveCleanExcel();
+      saveCleanExcel(allData, filePath);
 
-      if (stopSignal.stopped || pageNum === MAX_PAGES) {
-        log('info', 'Reaching final page. Stopping.');
+      if (pageNum === MAX_PAGES) {
+        log('info', 'Reached final page. Stopping.');
         break;
       }
 
@@ -435,8 +445,8 @@ module.exports = async function runScraper(config, callbacks, stopSignal) {
   } catch (e) {
     log('error', 'FATAL: ' + e.message);
     if (context) await context.close().catch(() => {});
-    if (browser) await browser.close().catch(() => {});
-    if (allData.length) saveCleanExcel();
+    if (browser)  await browser.close().catch(() => {});
+    if (allData.length) saveCleanExcel(allData, filePath);
     onDone({ success: false, error: e.message, filePath: allData.length ? filePath : null, rowCount: allData.length, stopped: false });
     throw e;
   }
